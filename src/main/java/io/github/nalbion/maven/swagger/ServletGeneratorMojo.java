@@ -1,6 +1,7 @@
 package io.github.nalbion.maven.swagger;
 
 import com.wordnik.swagger.models.*;
+import com.wordnik.swagger.models.properties.Property;
 import freemarker.cache.ClassTemplateLoader;
 import freemarker.cache.FileTemplateLoader;
 import freemarker.cache.MultiTemplateLoader;
@@ -82,7 +83,7 @@ public class ServletGeneratorMojo extends AbstractMojo {
 System.out.println("included schema files:" + includedSchemaFiles);
             for (String schemaFile : includedSchemaFiles) {
                 try {
-                    parseSchema(schemaFile, index++);
+                     processSchema(schemaFile, index++);
                 } catch (IOException e) {
                     throw new MojoExecutionException("Failed to parse " + schemaFile, e);
                 } catch (TemplateException e) {
@@ -99,7 +100,7 @@ System.out.println("included schema files:" + includedSchemaFiles);
                         @Override
                         public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                             try {
-                                parseSchema(file.toString(), index++);
+                                 processSchema(file.toString(), index++);
                             } catch (IOException e) {
                                 throw new RuntimeException("Failed to parse " + file.toString(), e);
                             } catch (TemplateException e) {
@@ -109,7 +110,7 @@ System.out.println("included schema files:" + includedSchemaFiles);
                         }
                     });
                 } else {
-                    parseSchema(schemaLocation, 0);
+                     processSchema(schemaLocation, 0);
                 }
             } catch (IOException e) {
                 throw new MojoExecutionException("Failed to parse schema", e);
@@ -119,38 +120,164 @@ System.out.println("included schema files:" + includedSchemaFiles);
         }
     }
 
-    static String camelCase(String original) {
-        String converted = original.replaceAll("[^\\w\\d]", " ");
-        return WordUtils.capitalize(converted).replaceAll(" ", "");
-    }
-
-    private void parseSchema(String schemaPathName, int index) throws IOException, TemplateException {
-        System.out.println(schemaPathName);
-        File schemaFile = new File(schemaPathName);
-        Swagger swagger = new SwaggerParser().read(schemaPathName);
-
+    private void processSchema(String schemaPathName, int index) throws IOException, TemplateException {
+        System.out.println("Processing schema: " + schemaPathName);
+        // Skip the schema if there's no code to generate
+        Swagger swagger = loadSwagger(schemaPathName);
         if (swagger == null) {
             System.out.println("No swagger - skipping " + schemaPathName);
             return;
         }
+
         Map<String, com.wordnik.swagger.models.Path> paths = swagger.getPaths();
         if (paths == null) {
             System.out.println("No paths - skipping " + schemaPathName);
             return;
         }
 
-        schemaFile.getName();
+        // Load data for the templates
+        File schemaFile = new File(schemaPathName);
+        String className = determineApiClassName(swagger, schemaFile);
 
+        Map<String, Object> data = new HashMap<>();
+        data.put("generateSwaggerAnnotations", generateSwaggerAnnotations);
+        data.put("packageName", packageName);
+        data.put("className", className);
+        data.put("basePath", swagger.getBasePath());
+
+        Map<String, Model> definitions = swagger.getDefinitions();
+        String modelPackageName = this.packageName + ".model";
+        data.put("modelPackageName", modelPackageName);
+
+        // Create model/entity classes for the schema's definitions
+        Configuration templateConfig = loadConfiguration();
+        processDefinitions(definitions, modelPackageName, templateConfig);
+
+        // Parse the rest operations for the API
+        processRestOperations(paths, data);
+
+        // Generate the API servlet code
+        processTemplate(templateConfig, "class-template.ftl", data, packageName, className);
+        if (0 == index) {
+            processTemplate(templateConfig, "base-class-template.ftl", data, packageName, "AbstractServlet");
+        }
+    }
+
+    private Swagger loadSwagger(String schemaPathName) {
+//        // build an authorization value
+//        AuthorizationValue mySpecialHeader = new AuthorizationValue()
+//                .keyName("x-special-access")  //  the name of the authorization to pass
+//                .value("i-am-special")        //  the value of the authorization
+//                .type("header");              //  the location, as either `header` or `query`
+
+//        // or in a single constructor
+//        AuthorizationValue apiKey = new AuthorizationValue("api_key", "special-key", "header");
+//        Swagger swagger = new SwaggerParser().read(schemaLocation,
+//                                    Arrays.asList(mySpecialHeader, apiKey)
+//        );
+
+        return new SwaggerParser().read(schemaPathName);
+    }
+
+    private String determineApiClassName(Swagger swagger, File schemaFile) {
         Info info = swagger.getInfo();
         String title = info == null ? null : info.getTitle();
         if (title == null) {
             title = schemaFile.getName().replaceAll("(api|API)?\\.(yaml|json)$", "");
         }
-        String className = camelCase(title) + "Api";
+        return Utils.camelCase(title) + "Api";
+    }
 
+    private void processDefinitions(Map<String, Model> definitions,
+                                    String packageName,
+                                    Configuration templateConfig) throws IOException, TemplateException {
+        Map<String, Object> classData = new HashMap<>();
+        List<JavaField> fields = new LinkedList<>();
+        Set<String> requiredImports = new HashSet<>();
+
+        for (String definitionName : definitions.keySet()) {
+            classData.clear();
+            classData.put("packageName", packageName);
+            classData.put("className", definitionName);
+
+            fields.clear();
+            classData.put("fields", fields);
+            requiredImports.clear();
+            classData.put("requiredImports", requiredImports);
+
+            Model model = definitions.get(definitionName);
+
+            Map<String, Property> properties = model.getProperties();
+            if (null != properties) {
+                for (String fieldName : properties.keySet()) {
+                    Property property = properties.get(fieldName);
+                    String javaType = Utils.parseResponseProperty(property, null);
+                    if ("Date".equals(javaType)) {
+                        requiredImports.add("java.util.Date");
+                    }
+                    fields.add(new JavaField(fieldName, javaType, property));
+                }
+            }
+
+            processTemplate(templateConfig, "resource-class-template.ftl",
+                            classData, packageName, definitionName);
+        }
+    }
+
+    private void processTemplate(Configuration cfg, String templateName,
+                                 Map<String, Object> data,
+                                 String packageName, String className)
+            throws IOException, TemplateException {
         File outputFile = new File(outputDirectory,
-                                packageName.replaceAll("\\.", "/") + "/" + className + ".java");
+                packageName.replaceAll("\\.", "/") + "/" + className + ".java");
+        if (!outputFile.exists()) {
+            outputFile.getParentFile().mkdirs();
+            outputFile.createNewFile();
+        }
+        Writer out = new FileWriter(outputFile);
 
+        Template template = cfg.getTemplate(templateName);
+        template.process(data, out);
+        out.close();
+        System.out.println("Generated servlet source: " + outputFile);
+    }
+
+    private void processRestOperations(Map<String, com.wordnik.swagger.models.Path> paths,
+                                       Map<String, Object> data) {
+        List<RestOperation> restOperations = new LinkedList<>();
+
+        data.put("operations", restOperations);
+        boolean hasPathPatterns = false;
+
+        for (String pathName : paths.keySet()) {
+            com.wordnik.swagger.models.Path path = paths.get(pathName);
+
+            hasPathPatterns |= addOperation(restOperations, "GET", pathName, path.getGet());
+            hasPathPatterns |= addOperation(restOperations, "POST", pathName, path.getPost());
+            hasPathPatterns |= addOperation(restOperations, "PUT", pathName, path.getPut());
+            hasPathPatterns |= addOperation(restOperations, "DELETE", pathName, path.getDelete());
+            hasPathPatterns |= addOperation(restOperations, "PATCH", pathName, path.getPatch());
+        }
+
+        data.put("hasPathPatterns", hasPathPatterns);
+    }
+
+    private boolean addOperation(List<RestOperation> restOperations,
+                              String method, String pathName, Operation operation) {
+        boolean hasPathPatterns = false;
+
+        if (operation != null) {
+            RestOperation restOperation = new RestOperation(method, pathName, operation);
+            if (null != restOperation.getPathPattern()) {
+                hasPathPatterns = true;
+            }
+            restOperations.add(restOperation);
+        }
+
+        return hasPathPatterns;
+    }
+
+    private Configuration loadConfiguration() throws IOException {
         Configuration cfg = new Configuration(Configuration.VERSION_2_3_22);
         cfg.setDefaultEncoding(sourceEncoding);
         cfg.setTemplateExceptionHandler(TemplateExceptionHandler.RETHROW_HANDLER);
@@ -166,106 +293,6 @@ System.out.println("included schema files:" + includedSchemaFiles);
         }
         cfg.setTemplateLoader(templateLoader);
 
-        Template classTemplate = cfg.getTemplate("class-template.ftl");
-
-        Map<String, Object> data = new HashMap<>();
-        data.put("generateSwaggerAnnotations", generateSwaggerAnnotations);
-        data.put("packageName", packageName);
-        data.put("className", className);
-        data.put("basePath", swagger.getBasePath());
-
-        List<RestOperation> restOperations = new LinkedList<>();
-
-        data.put("operations", restOperations);
-
-        for (String pathName : paths.keySet()) {
-            com.wordnik.swagger.models.Path path = paths.get(pathName);
-
-            addOperation(restOperations, "GET", pathName, path.getGet());
-            addOperation(restOperations, "POST", pathName, path.getPost());
-            addOperation(restOperations, "PUT", pathName, path.getPut());
-            addOperation(restOperations, "DELETE", pathName, path.getDelete());
-            addOperation(restOperations, "PATCH", pathName, path.getPatch());
-        }
-
-        if (!outputFile.exists()) {
-            outputFile.getParentFile().mkdirs();
-            outputFile.createNewFile();
-        }
-        Writer out = new FileWriter(outputFile);
-        classTemplate.process(data, out);
-        out.close();
-        System.out.println("Generated servlet source: " + outputFile);
-
-        if (0 == index) {
-            Template baseClassTemplate = cfg.getTemplate("base-class-template.ftl");
-            outputFile = new File(outputDirectory,
-                    packageName.replaceAll("\\.", "/") + "/AbstractServlet.java");
-
-            out = new FileWriter(outputFile);
-            baseClassTemplate.process(data, out);
-            out.close();
-            System.out.println("Generated servlet source: " + outputFile);
-        }
+        return cfg;
     }
-
-    private void addOperation(List<RestOperation> restOperations,
-                              String method, String pathName, Operation operation) {
-        if (operation != null) {
-            restOperations.add(new RestOperation(method, pathName, operation));
-        }
-    }
-
-
-
-
-//        // build a authorization value
-//        AuthorizationValue mySpecialHeader = new AuthorizationValue()
-//                .keyName("x-special-access")  //  the name of the authorization to pass
-//                .value("i-am-special")        //  the value of the authorization
-//                .type("header");              //  the location, as either `header` or `query`
-
-//        // or in a single constructor
-//        AuthorizationValue apiKey = new AuthorizationValue("api_key", "special-key", "header");
-//        Swagger swagger = new SwaggerParser().read(schemaLocation,
-//                                    Arrays.asList(mySpecialHeader, apiKey)
-//        );
-
-        //swagger.getHost()
-
-//        File f = outputDirectory;
-//
-//        if ( !f.exists() )
-//        {
-//            f.mkdirs();
-//        }
-//
-//        File touch = new File( f, "touch.txt" );
-//
-//        FileWriter w = null;
-//        try
-//        {
-//            w = new FileWriter( touch );
-//
-//            w.write( "touch.txt" );
-//        }
-//        catch ( IOException e )
-//        {
-////            throw new MojoExecutionException( "Error creating file " + touch, e );
-//        }
-//        finally
-//        {
-//            if ( w != null )
-//            {
-//                try
-//                {
-//                    w.close();
-//                }
-//                catch ( IOException e )
-//                {
-//                    // ignore
-//                }
-//            }
-//        }
-//    }
 }

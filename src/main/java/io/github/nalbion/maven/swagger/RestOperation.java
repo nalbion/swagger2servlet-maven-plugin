@@ -6,23 +6,25 @@ import com.wordnik.swagger.models.parameters.*;
 import com.wordnik.swagger.models.properties.*;
 import org.apache.commons.lang.StringUtils;
 
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class RestOperation {
     private String method;
     private String path;
+    private String pathPattern;
+    private String[] pathParameters;
     private String summary;
     private String description;
     private String javaMethodName;
     private String javaReturnType;
     private List<String> produces;
     private List<Map<String, String>> responses;
-    private List<Map<String, Object>> parameters;
+    private Map<String, Map<String, Object>> parameters;
     private boolean hasImplicitParameters;
+
+    private static final Pattern PATH_PATTERN_REGEX = Pattern.compile("\\{(\\w+)\\}");
 
     /**
      * @param method - GET/POST etc
@@ -31,9 +33,8 @@ public class RestOperation {
      */
     public RestOperation(String method, String path, Operation operation) {
         this.method = method;
-        this.path = path;
-        description = fixMultiLineDescription(operation.getDescription());
-        summary = fixMultiLineDescription(operation.getSummary());
+        description = operation.getDescription();
+        summary = operation.getSummary();
         produces = operation.getProduces();
         javaMethodName = (String)operation.getVendorExtensions().get("x-swagger-js-method-name");
         if (null == javaMethodName) {
@@ -50,14 +51,10 @@ public class RestOperation {
             Response response = rawResponses.get(code);
             Map<String, String> data = new HashMap<>();
 
-
-
             data.put("code", code);
             data.put("description", response.getDescription());
             Property schema = response.getSchema();
-            String returnType = parseResponseProperty(schema, data);
-
-
+            String returnType = Utils.parseResponseProperty(schema, data);
 
             if (null == javaReturnType) {
                 if ("200".equals(code)) {
@@ -73,13 +70,16 @@ public class RestOperation {
 
         List<Parameter> rawParameters = operation.getParameters();
         if (null != rawParameters) {
-            this.parameters = new ArrayList<>(rawParameters.size());
+            this.parameters = new HashMap<>(rawParameters.size());
             for (Parameter parameter : rawParameters) {
                 Map<String, Object> data = new HashMap<>(8);
-                data.put("name", parameter.getName());
+
+                String javaType = "String";
+                String paramName = parameter.getName();
+                data.put("name", paramName);
                 String description = parameter.getDescription();
                 if (null != description) {
-                    data.put("description", fixMultiLineDescription(description));
+                    data.put("description", description);
                 }
                 data.put("required", parameter.getRequired());
                 data.put("in", parameter.getIn());
@@ -117,21 +117,39 @@ public class RestOperation {
 
                 // Cookie, Form, Header, Path, Query
                 if (parameter instanceof SerializableParameter) {
-                    String value = ((SerializableParameter)parameter).getFormat();
-                    if (null != value) {
-                        data.put("format", value);
+                    String format = ((SerializableParameter)parameter).getFormat();
+                    if (null != format) {
+                        data.put("format", format);
                     }
 
-                    value = ((SerializableParameter)parameter).getType();
-                    if (null != value) {
-                        data.put("type", value);
+                    String type = ((SerializableParameter)parameter).getType();
+                    if (null != type) {
+                        data.put("type", type);
+
+                        if ("integer".equals(type)) {
+                            if ("int64".equals(format)) {
+                                javaType = "long";
+                            } else {
+                                javaType = "int";
+                            }
+                        } else if ("number".equals(type)) {
+                            javaType = format;
+                        } else if ("boolean".equals(type)) {
+                            javaType = type;
+                        } else if ("byte".equals(format)) {
+                            javaType = format;
+                        } else if ("date".equals(format) || "date-time".equals(format)) {
+                            javaType = "java.util.Date";
+                        }
                     }
                 }
 
-//                data.put("type", parameter.)
-                this.parameters.add(data);
+                data.put("javaType", javaType);
+                this.parameters.put(paramName, data);
             }
         }
+
+        setPath(path);
 
 //        Map<String, Response> responses = operation.getResponses();
 //        this.responses = new ArrayList<>(responses.size());
@@ -154,97 +172,54 @@ public class RestOperation {
 //        }
     }
 
-    private String parseResponseProperty(Property schema, Map<String, String> data) {
-        String returnType;
-        boolean isPrimitiveReturn = false;
+    /**
+     * Updates <code>pathPattern</code> and <code>pathParameters</code> if parameters are
+     * embedded within the path
+     * @param path
+     */
+    private void setPath(String path) {
+        this.path = path;
 
-        if (null == schema) {
-            returnType = "void";
-            isPrimitiveReturn = true;
-        } else {
-            if (schema instanceof StringProperty) {
-                returnType = "String";
-                if (null != data) data.put("type", "string");
-            } else if (schema instanceof UUIDProperty) {
-                returnType = "UUID";
-                if (null != data) data.put("type", "string");
-            } else if (schema instanceof BooleanProperty) {
-                returnType = "boolean";
-                isPrimitiveReturn = true;
-                if (null != data) data.put("type", "boolean");
-            } else if (schema instanceof DateProperty) {
-                returnType = "Date";
-                if (null != data) {
-                    data.put("type", "string");
-                    data.put("format", "date");
-                }
-            } else if (schema instanceof DateTimeProperty) {
-                returnType = "Date";
-                if (null != data) {
-                    data.put("type", "string");
-                    data.put("format", "date-time");
-                }
-            } else if (schema instanceof DecimalProperty) {
-                returnType = "BigDecimal";
-                if (null != data) data.put("type", "number");
-            } else if (schema instanceof DoubleProperty) {
-                returnType = "double";
-                isPrimitiveReturn = true;
-                if (null != data) {
-                    data.put("type", "number");
-                    data.put("format", "double");
-                }
-            } else if (schema instanceof FloatProperty) {
-                returnType = "float";
-                isPrimitiveReturn = true;
-                if (null != data) {
-                    data.put("type", "number");
-                   data.put("format", "float");
-                }
-            } else if (schema instanceof IntegerProperty) {
-                returnType = "int";
-                isPrimitiveReturn = true;
-                if (null != data) {
-                    data.put("type", "number");
-                    data.put("format", "int32");
-                }
-            } else if (schema instanceof LongProperty) {
-                returnType = "long";
-                isPrimitiveReturn = true;
-                if (null != data) {
-                    data.put("type", "number");
-                    data.put("format", "int64");
-                }
-            } else if (schema instanceof ArrayProperty) {
-                // List<MyCustomClass>.class, responseContainer = "List"
-                Property items = ((ArrayProperty) schema).getItems();
-                returnType = "List<" + parseResponseProperty(items, null) + ">";
-                if (null != data) {
-                    data.put("container", "List");
-                    data.put("type", "array");
-                }
-//                } else if (schema instanceof MapProperty) {
-//                    // List<MyCustomClass>.class, responseContainer = "List"
-//                    String type = ((MapProperty) schema).getAdditionalProperties().getType();
-//                    data.put("class", "Map<" + StringUtils.capitalize(type) + ">.class");
-//                    data.put("container", "Map");
-//                    data.put("type", "object");
-            } else if (schema instanceof ObjectProperty) {
-                String type = schema.getType();
-                returnType = StringUtils.capitalize(type);
-//                } else if (schema instanceof FileProperty) {
-            } else if (schema instanceof RefProperty) {
-                returnType = ((RefProperty)schema).getSimpleRef();
+        Matcher matcher = PATH_PATTERN_REGEX.matcher(path);
+        StringBuilder str = new StringBuilder(path.length());
+        LinkedList<String> params = new LinkedList<>();
+        int start = 0;
+        while (matcher.find()) {
+            int end = matcher.start();
+            str.append(path.substring(start, end));
+            start = matcher.end();
+            String paramName = matcher.group(1);
+            params.add(paramName);
+
+            Map<String, Object> paramData = parameters.get(paramName);
+            // type: integer, number, string, boolean
+            String type = (String)paramData.get("type");
+            if ("integer".equals(type)) {
+                str.append("(\\\\d+)");
+            } else if ("number".equals(type)) {
+                str.append("(\\\\d+\\\\.\\\\d+)");
+            } else if ("boolean".equals(type)) {
+                str.append("(true|false)");
             } else {
-                String type = schema.getType();
-                returnType = StringUtils.capitalize(type);
+                String format = (String)paramData.get("format");
+                if ("byte".equals(format)) {
+                    str.append("(\\\\d{1,3})");
+                } else if ("date".equals(format)) {
+                    str.append("(\\\\d{4}-[01]\\\\d-[013]\\\\d)");
+                } else if ("date-time".equals(format)) {
+                    str.append("(\\\\d{4}-[01]\\\\d-[013]\\\\d" +
+                            "T" +
+                            "[012]\\\\d:[0-6]\\\\d:[0-6]\\\\d");
+                } else {
+                    str.append("([^/]+)");
+                }
             }
         }
-
-        if (null != data) {
-            data.put("class", isPrimitiveReturn ? returnType : (returnType + ".class"));
+        if (start > 0) {
+            str.append(path.substring(start));
+            this.pathParameters = params.toArray(new String[params.size()]);
+            this.pathPattern = str.toString();
         }
-        return returnType;
     }
 
     /**
@@ -281,7 +256,7 @@ public class RestOperation {
         return responses;
     }
 
-    public List<Map<String, Object>> getParameters() {
+    public Map<String, Map<String, Object>> getParameters() {
         return parameters;
     }
 
@@ -289,13 +264,12 @@ public class RestOperation {
         return hasImplicitParameters;
     }
 
-    private String fixMultiLineDescription(String description) {
-        if (null == description) { return null; }
-        return description.trim()
-                .replaceAll("\"", "\\\\\"")
-                .replaceAll("\\\n",
-                        "\" +\n" +
-                                "                        \"");
+    public String getPathPattern() {
+        return pathPattern;
+    }
+
+    public String[] getPathParameters() {
+        return pathParameters;
     }
 
     /**
@@ -321,5 +295,5 @@ public class RestOperation {
 //            return method.toLowerCase() + result[0].toUpperCase() + result.substring(1);
             return segmentBuilder.toString();
         }
-    };
+    }
 }

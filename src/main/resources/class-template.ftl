@@ -3,7 +3,22 @@
     <#local captured><#nested></#local>
 ${ captured?replace("^\\s+|\\s+$|\\n|\\r", "", "rm") }
 </#macro>
+<#macro join_single_line><#local captured><#nested></#local>${ captured?replace("\\n|\\r", "", "rm") }</#macro>
+<#macro multiline_string>
+    <#local captured><#nested></#local>
+${ captured?trim?replace("\"", "\\\\\"", "rm")
+                ?replace("\\\n",
+                        "\" +\n" +
+                        "                        \"", "rm") }
+</#macro>
+<#macro multiline_comment>
+    <#local captured><#nested></#local>
+${ captured?trim?replace("\\\n",
+                        "\\\n        //", "rm") }
+</#macro>
 package ${packageName};
+
+import ${modelPackageName}.*;
 
 <#if generateSwaggerAnnotations>
 import com.wordnik.swagger.annotations.*;
@@ -32,7 +47,7 @@ import org.slf4j.LoggerFactory;
  */
 <#if generateSwaggerAnnotations>
 @Path("${basePath}")
-@Api(value = "${basePath}"<#if description??>, description = "${description}"</#if>)
+@Api(value = "${basePath}"<#if description??>, description = "<@multiline_string>${description}</@multiline_string>"</#if>)
 @SuppressWarnings("serial")
 <#if produces??>
 @Produces({<#list produces as procuct>"#{product}<#if procuct_has_next>, </#if></#list>})
@@ -41,32 +56,75 @@ import org.slf4j.LoggerFactory;
 public class ${className} extends AbstractServlet {
     Logger logger = LoggerFactory.getLogger(${className}.class);
 
+<#list operations as operation>
+    <#if operation.pathPattern??>
+    private static final java.util.regex.Pattern ${operation.javaMethodName?replace("[A-Z]", "_$0", "r")?upper_case}_PATTERN
+                            = java.util.regex.Pattern.compile("${operation.pathPattern}");
+    </#if>
+</#list>
+
     protected String handleGetRequest(HttpServletRequest request, HttpServletResponse response,
                                    String pathInfo, Map<String, Object> model)
         throws HttpResponseException, IOException
     {
         if (null == pathInfo) {
             return handleGetIndex(request, response, model);
+        }
+<#if hasPathPatterns>
+
+        java.util.regex.Matcher matcher;
+</#if>
 <#list operations as operation>
     <#if operation.method == "GET">
-        } else if ("${operation.path}".equals(pathInfo)) {
-<@compress_empty_lines>
-<#if operation.summary??>
-            // ${operation.summary}
-<#elseif operation.description??>
-            // ${operation.description}
-</#if>
-</@compress_empty_lines>
-            <#if operation.javaReturnType == "void">
-            ${operation.javaMethodName}();
-            <#else>
-            return ${operation.javaMethodName}();
+
+        <@compress_empty_lines>
+            <#if operation.summary??>
+        // <@multiline_comment>${operation.summary}</@multiline_comment>
+            <#elseif operation.description??>
+        // <@multiline_comment>${operation.description}</@multiline_comment>
             </#if>
+        </@compress_empty_lines>
+        <#if operation.pathPattern??>
+        // ${operation.pathPattern}
+        matcher = ${operation.javaMethodName?replace("[A-Z]", "_$0", "r")?upper_case}_PATTERN.matcher(pathInfo);
+        if (matcher.find()) {
+            <#list operation.pathParameters as paramName>
+                <#assign param = operation.parameters[paramName]>
+            ${param.javaType} ${param.name} = <#rt>
+                <#if param.javaType == "String">
+                    matcher.group(${paramName_index + 1});<#lt>
+                <#elseif param.javaType == "double">
+                    Double.parseDouble(matcher.group(${paramName_index + 1}));<#lt>
+                <#elseif param.javaType == "float">
+                    Float.parseFloat(matcher.group(${paramName_index + 1}));<#lt>
+                <#elseif param.javaType == "boolean">
+                    Boolean.parseBoolean(matcher.group(${paramName_index + 1}));<#lt>
+                <#elseif param.javaType == "int">
+                    Integer.parseInt(matcher.group(${paramName_index + 1}));<#lt>
+                <#elseif param.javaType == "long">
+                    Long.parseLong(matcher.group(${paramName_index + 1}));<#lt>
+                <#elseif param.javaType == "java.util.Date">
+                    <#if param.format == "date">
+                    DATE_FORMAT.parse(matcher.group(${paramName_index + 1}));<#lt>
+                    <#else>
+                    DATE_TIME_FORMAT.parse(matcher.group(${paramName_index + 1}));<#lt>
+                    </#if>
+                </#if>
+            </#list>
+        <#else>
+        if ("${operation.path}".equals(pathInfo)) {
+        </#if>
+        <#if operation.javaReturnType == "void">
+            ${operation.javaMethodName}(<#if operation.pathPattern??><#list operation.pathParameters as param>${param}<#if param_has_next>, </#if></#list></#if>);
+        <#else>
+            ${operation.javaReturnType} responseData = ${operation.javaMethodName}(<#if operation.pathPattern??><#list operation.pathParameters as param>${param}<#if param_has_next>, </#if></#list></#if>);
+        </#if>
+            return null;
+        }
     </#if>
 </#list>
-        } else {
-            response.sendError(HttpServletResponse.SC_NOT_FOUND);
-        }
+
+        response.sendError(HttpServletResponse.SC_NOT_FOUND);
         return null;
     }
 
@@ -75,6 +133,9 @@ public class ${className} extends AbstractServlet {
     {
     }
 <#list operations as operation>
+    <#if operation.parameters??>
+        <#assign paramNames = operation.parameters?keys>
+    </#if>
 
     /**
 <#if operation.summary??>
@@ -89,14 +150,14 @@ public class ${className} extends AbstractServlet {
 <@compress_empty_lines>
     @${operation.method}
     @Path("${operation.path}")
-    @ApiOperation(<#if operation.summary??>value = "${operation.summary}"</#if>
+    @ApiOperation(<#if operation.summary??>value = "<@multiline_string>${operation.summary}</@multiline_string>"</#if>
             <#if operation.description??><#if operation.summary??>,</#if>
-                notes = "${operation.description}"</#if>)
+                notes = "<@multiline_string>${operation.description}</@multiline_string>"</#if>)
 <#if operation.responses??>
     @ApiResponses(Array(
         <#list operation.responses as response>
         new ApiResponse(code = ${response.code},
-                     message = "${response.description}"<#if response.class??>,
+                     message = "<@multiline_string>${response.description}</@multiline_string>"<#if response.class??>,
                     response = ${response.class}</#if>
         )<#if response_has_next>,</#if>
         </#list>
@@ -104,7 +165,8 @@ public class ${className} extends AbstractServlet {
 </#if>
 <#if operation.hasImplicitParameters()>
     @ApiImplicitParams({
-    <#list operation.parameters as param>
+    <#list paramNames as name>
+        <#assign param = operation.parameters[name]>
         <#if param.in != "path">
         @ApiImplicitParam(name = "${param.name}",
                 <#if param.description??>value = "${param.description}",</#if>
@@ -113,14 +175,21 @@ public class ${className} extends AbstractServlet {
                 <#if param.access??>access = "${param.access}",</#if>
                 <#--<#if param.format??>format = "${param.format}", </#if>-->
                 <#if param.type??>dataType = "${param.type}",</#if>
-                paramType = "${param.in}")<#if param_has_next>,</#if>
+                paramType = "${param.in}")<#if name_has_next>,</#if>
         </#if>
     </#list>
     })
 </#if>
 </@compress_empty_lines>
 </#if>
-    public ${operation.javaReturnType} ${operation.javaMethodName}() {
+    public ${operation.javaReturnType} ${operation.javaMethodName}(<#compress><@join_single_line>
+    <#if operation.pathParameters??>
+        <#list operation.pathParameters as paramName>
+            <#assign param = operation.parameters[paramName]>
+            final ${param.javaType} ${paramName}<#if paramName_has_next>, </#if>
+        </#list>
+    </#if>
+    </@join_single_line></#compress>) {
     }
 </#list>
 }
