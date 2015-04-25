@@ -54,6 +54,9 @@ public class ServletGeneratorMojo extends AbstractMojo {
     @Parameter(defaultValue = "${project.build.directory}/generated-sources/swagger2servlet")
     private File outputDirectory;
 
+    @Parameter(defaultValue = "true")
+    private boolean generateSwaggerAnnotations;
+
     /**
      * (Optional) If specified, must contain files:
      * <ul>
@@ -163,15 +166,16 @@ System.out.println("included schema files:" + includedSchemaFiles);
         }
         cfg.setTemplateLoader(templateLoader);
 
-        Template baseClassTemplate = cfg.getTemplate("base-class-template.ftl");
         Template classTemplate = cfg.getTemplate("class-template.ftl");
 
         Map<String, Object> data = new HashMap<>();
+        data.put("generateSwaggerAnnotations", generateSwaggerAnnotations);
         data.put("packageName", packageName);
         data.put("className", className);
         data.put("basePath", swagger.getBasePath());
 
         List<RestOperation> restOperations = new LinkedList<>();
+
         data.put("operations", restOperations);
 
         for (String pathName : paths.keySet()) {
@@ -192,6 +196,17 @@ System.out.println("included schema files:" + includedSchemaFiles);
         classTemplate.process(data, out);
         out.close();
         System.out.println("Generated servlet source: " + outputFile);
+
+        if (0 == index) {
+            Template baseClassTemplate = cfg.getTemplate("base-class-template.ftl");
+            outputFile = new File(outputDirectory,
+                    packageName.replaceAll("\\.", "/") + "/AbstractServlet.java");
+
+            out = new FileWriter(outputFile);
+            baseClassTemplate.process(data, out);
+            out.close();
+            System.out.println("Generated servlet source: " + outputFile);
+        }
     }
 
     private void addOperation(List<RestOperation> restOperations,

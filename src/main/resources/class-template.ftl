@@ -1,6 +1,13 @@
+<#macro compress_empty_lines><#local captured><#nested></#local>${ captured?replace("^\\s*[\\n\\r]+", "", "rm") }</#macro>
+<#macro compress_single_line>
+    <#local captured><#nested></#local>
+${ captured?replace("^\\s+|\\s+$|\\n|\\r", "", "rm") }
+</#macro>
 package ${packageName};
 
+<#if generateSwaggerAnnotations>
 import com.wordnik.swagger.annotations.*;
+</#if>
 
 import javax.servlet.RequestDispatcher;
 import javax.servlet.ServletException;
@@ -23,8 +30,14 @@ import org.slf4j.LoggerFactory;
 </#list>
  * </ul>
  */
+<#if generateSwaggerAnnotations>
+@Path("${basePath}")
 @Api(value = "${basePath}"<#if description??>, description = "${description}"</#if>)
 @SuppressWarnings("serial")
+<#if produces??>
+@Produces({<#list produces as procuct>"#{product}<#if procuct_has_next>, </#if></#list>})
+</#if>
+</#if>
 public class ${className} extends AbstractServlet {
     Logger logger = LoggerFactory.getLogger(${className}.class);
 
@@ -37,14 +50,24 @@ public class ${className} extends AbstractServlet {
 <#list operations as operation>
     <#if operation.method == "GET">
         } else if ("${operation.path}".equals(pathInfo)) {
-<#if operation.description??>    // ${operation.description}</#if>
-            // TODO: implement
+<@compress_empty_lines>
+<#if operation.summary??>
+            // ${operation.summary}
+<#elseif operation.description??>
+            // ${operation.description}
+</#if>
+</@compress_empty_lines>
+            <#if operation.javaReturnType == "void">
+            ${operation.javaMethodName}();
+            <#else>
+            return ${operation.javaMethodName}();
+            </#if>
     </#if>
 </#list>
         } else {
             response.sendError(HttpServletResponse.SC_NOT_FOUND);
-            return null;
         }
+        return null;
     }
 
     protected String handleGetIndex(HttpServletRequest request, HttpServletResponse response, Map<String, Object> model)
@@ -54,23 +77,35 @@ public class ${className} extends AbstractServlet {
 <#list operations as operation>
 
     /**
+<#if operation.summary??>
+     * ${operation.summary}
+</#if>
+<#if operation.description??>
      * ${operation.description}
+</#if>
      * ${operation.method}  ${operation.path}
      */
+<#if generateSwaggerAnnotations>
+<@compress_empty_lines>
+    @${operation.method}
+    @Path("${operation.path}")
+    @ApiOperation(<#if operation.summary??>value = "${operation.summary}"</#if>
+            <#if operation.description??><#if operation.summary??>,</#if>
+                notes = "${operation.description}"</#if>)
 <#if operation.responses??>
-    <#assign keys = operation.responses?keys>
     @ApiResponses(Array(
-        <#list keys as key>
-        new ApiResponse(code = ${key},
-                     message = "${operation.responses[key].getDescription()}"<#if operation.responses[key].getSchema()??>,
-                    response = ${operation.responses[key].getSchema().getType()?cap_first}.class</#if>
-        )<#if key_has_next>,</#if>
+        <#list operation.responses as response>
+        new ApiResponse(code = ${response.code},
+                     message = "${response.description}"<#if response.class??>,
+                    response = ${response.class}</#if>
+        )<#if response_has_next>,</#if>
         </#list>
     ))
 </#if>
-<#if operation.parameters??>
+<#if operation.hasImplicitParameters()>
     @ApiImplicitParams({
     <#list operation.parameters as param>
+        <#if param.in != "path">
         @ApiImplicitParam(name = "${param.name}",
                 <#if param.description??>value = "${param.description}",</#if>
                 <#if param.default??>defaultValue = "${param.default}",</#if>
@@ -79,10 +114,13 @@ public class ${className} extends AbstractServlet {
                 <#--<#if param.format??>format = "${param.format}", </#if>-->
                 <#if param.type??>dataType = "${param.type}",</#if>
                 paramType = "${param.in}")<#if param_has_next>,</#if>
+        </#if>
     </#list>
     })
 </#if>
-    public void ${operation.javaMethodName}() {
+</@compress_empty_lines>
+</#if>
+    public ${operation.javaReturnType} ${operation.javaMethodName}() {
     }
 </#list>
 }

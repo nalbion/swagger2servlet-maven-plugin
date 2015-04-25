@@ -3,8 +3,10 @@ package io.github.nalbion.maven.swagger;
 import com.wordnik.swagger.models.Operation;
 import com.wordnik.swagger.models.Response;
 import com.wordnik.swagger.models.parameters.*;
+import com.wordnik.swagger.models.properties.*;
 import org.apache.commons.lang.StringUtils;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -13,11 +15,14 @@ import java.util.Map;
 public class RestOperation {
     private String method;
     private String path;
+    private String summary;
     private String description;
     private String javaMethodName;
-//    List<Map<String, String>> responses;
-    private Map<String, Response> responses;
+    private String javaReturnType;
+    private List<String> produces;
+    private List<Map<String, String>> responses;
     private List<Map<String, Object>> parameters;
+    private boolean hasImplicitParameters;
 
     /**
      * @param method - GET/POST etc
@@ -27,31 +32,60 @@ public class RestOperation {
     public RestOperation(String method, String path, Operation operation) {
         this.method = method;
         this.path = path;
-        description = operation.getDescription();
+        description = fixMultiLineDescription(operation.getDescription());
+        summary = fixMultiLineDescription(operation.getSummary());
+        produces = operation.getProduces();
         javaMethodName = (String)operation.getVendorExtensions().get("x-swagger-js-method-name");
         if (null == javaMethodName) {
-            javaMethodName = getPathToMethodName(method, path);
+            javaMethodName = convertPathToMethodName(method, path);
         }
 
-        this.responses = operation.getResponses();
+        Map<String, Response> rawResponses = operation.getResponses();
+        if (rawResponses.size() == 0) {
+            javaReturnType = "void";
+        }
+        this.responses = new ArrayList<>(rawResponses.size());
+        boolean foundReturnTypeFor200 = false;
+        for (String code : rawResponses.keySet()) {
+            Response response = rawResponses.get(code);
+            Map<String, String> data = new HashMap<>();
 
-        List<Parameter> parameters = operation.getParameters();
-        if (null != parameters) {
-            this.parameters = new ArrayList<>(parameters.size());
-            for (Parameter parameter : parameters) {
-                Map<String, Object> data = new HashMap<>();
+
+
+            data.put("code", code);
+            data.put("description", response.getDescription());
+            Property schema = response.getSchema();
+            String returnType = parseResponseProperty(schema, data);
+
+
+
+            if (null == javaReturnType) {
+                if ("200".equals(code)) {
+                    javaReturnType = returnType;
+                    foundReturnTypeFor200 = true;
+                } else if (!foundReturnTypeFor200 && code.charAt(0) == '2') {
+                    javaReturnType = returnType;
+                }
+            }
+
+            this.responses.add(data);
+        }
+
+        List<Parameter> rawParameters = operation.getParameters();
+        if (null != rawParameters) {
+            this.parameters = new ArrayList<>(rawParameters.size());
+            for (Parameter parameter : rawParameters) {
+                Map<String, Object> data = new HashMap<>(8);
                 data.put("name", parameter.getName());
                 String description = parameter.getDescription();
                 if (null != description) {
-                    data.put("description",
-                              description.trim()
-                                            .replaceAll("\"", "\\\\\"")
-                                            .replaceAll("\\\n",
-                                                    "\" +\n" +
-                                                            "                        \""));
+                    data.put("description", fixMultiLineDescription(description));
                 }
                 data.put("required", parameter.getRequired());
                 data.put("in", parameter.getIn());
+                if (!"path".equals(parameter.getIn())) {
+                    hasImplicitParameters = true;
+                }
                 data.put("access", parameter.getAccess());
 
                 if (parameter instanceof CookieParameter) {
@@ -120,6 +154,99 @@ public class RestOperation {
 //        }
     }
 
+    private String parseResponseProperty(Property schema, Map<String, String> data) {
+        String returnType;
+        boolean isPrimitiveReturn = false;
+
+        if (null == schema) {
+            returnType = "void";
+            isPrimitiveReturn = true;
+        } else {
+            if (schema instanceof StringProperty) {
+                returnType = "String";
+                if (null != data) data.put("type", "string");
+            } else if (schema instanceof UUIDProperty) {
+                returnType = "UUID";
+                if (null != data) data.put("type", "string");
+            } else if (schema instanceof BooleanProperty) {
+                returnType = "boolean";
+                isPrimitiveReturn = true;
+                if (null != data) data.put("type", "boolean");
+            } else if (schema instanceof DateProperty) {
+                returnType = "Date";
+                if (null != data) {
+                    data.put("type", "string");
+                    data.put("format", "date");
+                }
+            } else if (schema instanceof DateTimeProperty) {
+                returnType = "Date";
+                if (null != data) {
+                    data.put("type", "string");
+                    data.put("format", "date-time");
+                }
+            } else if (schema instanceof DecimalProperty) {
+                returnType = "BigDecimal";
+                if (null != data) data.put("type", "number");
+            } else if (schema instanceof DoubleProperty) {
+                returnType = "double";
+                isPrimitiveReturn = true;
+                if (null != data) {
+                    data.put("type", "number");
+                    data.put("format", "double");
+                }
+            } else if (schema instanceof FloatProperty) {
+                returnType = "float";
+                isPrimitiveReturn = true;
+                if (null != data) {
+                    data.put("type", "number");
+                   data.put("format", "float");
+                }
+            } else if (schema instanceof IntegerProperty) {
+                returnType = "int";
+                isPrimitiveReturn = true;
+                if (null != data) {
+                    data.put("type", "number");
+                    data.put("format", "int32");
+                }
+            } else if (schema instanceof LongProperty) {
+                returnType = "long";
+                isPrimitiveReturn = true;
+                if (null != data) {
+                    data.put("type", "number");
+                    data.put("format", "int64");
+                }
+            } else if (schema instanceof ArrayProperty) {
+                // List<MyCustomClass>.class, responseContainer = "List"
+                Property items = ((ArrayProperty) schema).getItems();
+                returnType = "List<" + parseResponseProperty(items, null) + ">";
+                if (null != data) {
+                    data.put("container", "List");
+                    data.put("type", "array");
+                }
+//                } else if (schema instanceof MapProperty) {
+//                    // List<MyCustomClass>.class, responseContainer = "List"
+//                    String type = ((MapProperty) schema).getAdditionalProperties().getType();
+//                    data.put("class", "Map<" + StringUtils.capitalize(type) + ">.class");
+//                    data.put("container", "Map");
+//                    data.put("type", "object");
+            } else if (schema instanceof ObjectProperty) {
+                String type = schema.getType();
+                returnType = StringUtils.capitalize(type);
+//                } else if (schema instanceof FileProperty) {
+            } else if (schema instanceof RefProperty) {
+                returnType = ((RefProperty)schema).getSimpleRef();
+            } else {
+                String type = schema.getType();
+                returnType = StringUtils.capitalize(type);
+            }
+        }
+
+        if (null != data) {
+            data.put("class", isPrimitiveReturn ? returnType : (returnType + ".class"));
+        }
+        return returnType;
+    }
+
     /**
      * @return "GET", "POST" etc
      */
@@ -138,12 +265,19 @@ public class RestOperation {
         return description;
     }
 
+    public String getSummary() {
+        return summary;
+    }
+
     public String getJavaMethodName() {
         return javaMethodName;
     }
 
-//    public List<Map<String, String>> getResponses() {
-    public Map<String, Response> getResponses() {
+    public String getJavaReturnType() {
+        return javaReturnType;
+    }
+
+    public List<Map<String, String>> getResponses() {
         return responses;
     }
 
@@ -151,10 +285,23 @@ public class RestOperation {
         return parameters;
     }
 
+    public boolean hasImplicitParameters() {
+        return hasImplicitParameters;
+    }
+
+    private String fixMultiLineDescription(String description) {
+        if (null == description) { return null; }
+        return description.trim()
+                .replaceAll("\"", "\\\\\"")
+                .replaceAll("\\\n",
+                        "\" +\n" +
+                                "                        \"");
+    }
+
     /**
      * Adapted from https://github.com/wcandillon/swagger-js-codegen
      */
-    private String getPathToMethodName(String method, String path){
+    private String convertPathToMethodName(String method, String path){
         if("/".equals(path) || StringUtils.isEmpty(path)) {
             return method.toLowerCase();
         } else {
