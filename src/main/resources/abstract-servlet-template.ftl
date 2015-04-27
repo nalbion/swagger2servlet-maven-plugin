@@ -9,7 +9,7 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -17,8 +17,8 @@ import java.util.Map;
 public class AbstractServlet extends HttpServlet {
     private static final Logger logger = LoggerFactory.getLogger(AbstractServlet.class);
     private static final ObjectMapper jsonMapper = new ObjectMapper();
-    protected static final DateFormat DATE_TIME_FORMAT = new SimpleDateFormat("yyyy-MM-ddTHH:mm:ss");
-    protected static final DateFormat DATE_TIME = new SimpleDateFormat("yyyy-MM-dd");
+    protected static final SimpleDateFormat DATE_TIME_FORMAT = new SimpleDateFormat("yyyy-MM-ddTHH:mm:ss");
+    protected static final SimpleDateFormat DATE_TIME = new SimpleDateFormat("yyyy-MM-dd");
 
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
@@ -82,8 +82,8 @@ public class AbstractServlet extends HttpServlet {
         throw new HttpResponseException(HttpServletResponse.SC_NOT_IMPLEMENTED);
     }
 
-    protected final void renderJsonResponse(HttpServletResponse response, Map<String, Object> model) throws IOException {
-        String json = jsonMapper.writeValueAsString(model);
+    protected final void renderJsonResponse(HttpServletResponse response, Object responseData) throws IOException {
+        String json = jsonMapper.writeValueAsString(responseData);
         renderJsonResponse(response, json);
     }
 

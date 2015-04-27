@@ -157,9 +157,9 @@ System.out.println("included schema files:" + includedSchemaFiles);
         processRestOperations(paths, data);
 
         // Generate the API servlet code
-        processTemplate(templateConfig, "class-template.ftl", data, packageName, className);
+        processTemplate(templateConfig, "api-servlet-template.ftl", data, packageName, className);
         if (0 == index) {
-            processTemplate(templateConfig, "base-class-template.ftl", data, packageName, "AbstractServlet");
+            processTemplate(templateConfig, "abstract-servlet-template.ftl", data, packageName, "AbstractServlet");
         }
     }
 
@@ -212,14 +212,11 @@ System.out.println("included schema files:" + includedSchemaFiles);
                 for (String fieldName : properties.keySet()) {
                     Property property = properties.get(fieldName);
                     String javaType = Utils.parseResponseProperty(property, null);
-                    if ("Date".equals(javaType)) {
-                        requiredImports.add("java.util.Date");
-                    }
                     fields.add(new JavaField(fieldName, javaType, property));
                 }
             }
 
-            processTemplate(templateConfig, "resource-class-template.ftl",
+            processTemplate(templateConfig, "entity-class-template.ftl",
                             classData, packageName, definitionName);
         }
     }

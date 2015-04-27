@@ -32,19 +32,19 @@ public class Utils {
                 isPrimitiveReturn = true;
                 if (null != data) data.put("type", "boolean");
             } else if (schema instanceof DateProperty) {
-                returnType = "Date";
+                returnType = "java.util.Date";
                 if (null != data) {
                     data.put("type", "string");
                     data.put("format", "date");
                 }
             } else if (schema instanceof DateTimeProperty) {
-                returnType = "Date";
+                returnType = "java.util.Date";
                 if (null != data) {
                     data.put("type", "string");
                     data.put("format", "date-time");
                 }
             } else if (schema instanceof DecimalProperty) {
-                returnType = "BigDecimal";
+                returnType = "java.math.BigDecimal";
                 if (null != data) data.put("type", "number");
             } else if (schema instanceof DoubleProperty) {
                 returnType = "double";
@@ -77,15 +77,15 @@ public class Utils {
             } else if (schema instanceof ArrayProperty) {
                 // List<MyCustomClass>.class, responseContainer = "List"
                 Property items = ((ArrayProperty) schema).getItems();
-                returnType = "List<" + parseResponseProperty(items, null) + ">";
+                returnType = "java.util.List<" + parseResponseProperty(items, null) + ">";
                 if (null != data) {
                     data.put("container", "List");
                     data.put("type", "array");
                 }
-//                } else if (schema instanceof MapProperty) {
-//                    // List<MyCustomClass>.class, responseContainer = "List"
+//            } else if (schema instanceof MapProperty) {
+                    // List<MyCustomClass>.class, responseContainer = "List"
 //                    String type = ((MapProperty) schema).getAdditionalProperties().getType();
-//                    data.put("class", "Map<" + StringUtils.capitalize(type) + ">.class");
+//                    returnType = "java.util.Map<" + StringUtils.capitalize(type) + ">");
 //                    data.put("container", "Map");
 //                    data.put("type", "object");
             } else if (schema instanceof ObjectProperty) {

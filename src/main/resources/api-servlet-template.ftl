@@ -16,6 +16,19 @@ ${ captured?trim?replace("\"", "\\\\\"", "rm")
 ${ captured?trim?replace("\\\n",
                         "\\\n        //", "rm") }
 </#macro>
+<#macro parse_parameter javaType>
+<#if javaType == "String"><#nested>
+<#elseif javaType == "double">Double.parseDouble(<#nested>)
+<#elseif javaType == "float">Float.parseFloat(<#nested>)
+<#elseif param.javaType == "boolean">Boolean.parseBoolean(<#nested>)
+<#elseif param.javaType == "int">Integer.parseInt(<#nested>)
+<#elseif param.javaType == "long">Long.parseLong(<#nested>)
+<#elseif param.javaType == "java.util.Date">
+<#if param.format == "date">DATE_FORMAT.parse(<#nested>)
+<#else>DATE_TIME_FORMAT.parse(<#nested>)
+</#if>
+</#if>
+</#macro>
 package ${packageName};
 
 import ${modelPackageName}.*;
@@ -91,35 +104,23 @@ public class ${className} extends AbstractServlet {
             <#list operation.pathParameters as paramName>
                 <#assign param = operation.parameters[paramName]>
             ${param.javaType} ${param.name} = <#rt>
-                <#if param.javaType == "String">
-                    matcher.group(${paramName_index + 1});<#lt>
-                <#elseif param.javaType == "double">
-                    Double.parseDouble(matcher.group(${paramName_index + 1}));<#lt>
-                <#elseif param.javaType == "float">
-                    Float.parseFloat(matcher.group(${paramName_index + 1}));<#lt>
-                <#elseif param.javaType == "boolean">
-                    Boolean.parseBoolean(matcher.group(${paramName_index + 1}));<#lt>
-                <#elseif param.javaType == "int">
-                    Integer.parseInt(matcher.group(${paramName_index + 1}));<#lt>
-                <#elseif param.javaType == "long">
-                    Long.parseLong(matcher.group(${paramName_index + 1}));<#lt>
-                <#elseif param.javaType == "java.util.Date">
-                    <#if param.format == "date">
-                    DATE_FORMAT.parse(matcher.group(${paramName_index + 1}));<#lt>
-                    <#else>
-                    DATE_TIME_FORMAT.parse(matcher.group(${paramName_index + 1}));<#lt>
-                    </#if>
-                </#if>
+                <@parse_parameter param.javaType>matcher.group(${paramName_index + 1})</@parse_parameter>;<#lt>
             </#list>
         <#else>
         if ("${operation.path}".equals(pathInfo)) {
         </#if>
         <#if operation.javaReturnType == "void">
-            ${operation.javaMethodName}(<#if operation.pathPattern??><#list operation.pathParameters as param>${param}<#if param_has_next>, </#if></#list></#if>);
-        <#else>
-            ${operation.javaReturnType} responseData = ${operation.javaMethodName}(<#if operation.pathPattern??><#list operation.pathParameters as param>${param}<#if param_has_next>, </#if></#list></#if>);
-        </#if>
+            ${operation.javaMethodName}(request, response<#if operation.pathPattern??>,
+                                                <#list operation.pathParameters as param>${param}<#if param_has_next>, </#if></#list></#if>);
             return null;
+        <#else>
+            ${operation.javaReturnType} responseData = ${operation.javaMethodName}(request, response<#if operation.pathPattern??>,
+                                                <#list operation.pathParameters as param>${param}<#if param_has_next>, </#if></#list></#if>);
+            if (null != responseData) {
+                renderJsonResponse(response, responseData);
+                return null;
+            }
+        </#if>
         }
     </#if>
 </#list>
@@ -131,6 +132,7 @@ public class ${className} extends AbstractServlet {
     protected String handleGetIndex(HttpServletRequest request, HttpServletResponse response, Map<String, Object> model)
         throws HttpResponseException, IOException
     {
+        return null;
     }
 <#list operations as operation>
     <#if operation.parameters??>
@@ -182,14 +184,79 @@ public class ${className} extends AbstractServlet {
 </#if>
 </@compress_empty_lines>
 </#if>
-    public ${operation.javaReturnType} ${operation.javaMethodName}(<#compress><@join_single_line>
-    <#if operation.pathParameters??>
-        <#list operation.pathParameters as paramName>
+    protected ${operation.javaReturnType} ${operation.javaMethodName}(HttpServletRequest request, HttpServletResponse response<#if operation.pathParameters??>,
+                <@join_single_line>
+                <#list operation.pathParameters as paramName>
+                    <#assign param = operation.parameters[paramName]>
+                    final ${param.javaType} ${paramName}<#if paramName_has_next>, </#if>
+                </#list>
+                </@join_single_line></#if><#lt>) {
+<#if operation.parameters??>
+        String paramValueString;
+    <#assign paramNames = operation.parameters?keys>
+    <#list paramNames as paramName>
+        <#assign param = operation.parameters[paramName]>
+        <#if param.in != 'path'>
+            <#if param.in == 'header'>
+        paramValueString = request.getHeader("${paramName}");
+            <#else>
+        paramValueString = request.getParameter("${paramName}");
+            </#if>
+            <#if param.javaType == 'String'>
+        ${param.javaType} ${paramName?replace("-", "_")} = paramValueString;
+            <#else>
+        ${param.javaType} ${paramName?replace("-", "_")} = (null == paramValueString) ? <@compress_single_line>
+                <#if operation.default??>
+                    <#if param.javaType == 'string'>
+                        "${param.default}"
+                    <#else>
+                        ${param.default}
+                    </#if>
+                <#else>
+                    <#if param.javaType == 'boolean'>false
+                    <#elseif param.javaType?matches('^[a-z][^\\.]*$')>0
+                    <#else>null
+                    </#if>
+                </#if> : <@parse_parameter param.javaType>paramValueString</@parse_parameter>;
+                </@compress_single_line>
+            </#if>
+        </#if>
+    </#list>
+</#if>
+<#if operation.parameters?? && (!operation.pathParameters?? || operation.parameters?size != operation.pathParameters?size) >
+
+        <#if operation.javaReturnType != 'void'>return </#if>${operation.javaMethodName}(request, response,
+    <#assign paramNames = operation.parameters?keys>
+    <@join_single_line>
+        <#list paramNames as paramName>
             <#assign param = operation.parameters[paramName]>
-            final ${param.javaType} ${paramName}<#if paramName_has_next>, </#if>
+            ${paramName?replace("-", "_")}<#if paramName_has_next>, </#if>
         </#list>
+    </@join_single_line><#lt>);
+    }
+
+    /**
+<#list paramNames as paramName>
+    <#assign param = operation.parameters[paramName]>
+     * @param ${paramName?replace("-", "_")} <#if param.description??>${param.description}</#if>
+</#list>
+     */
+    protected ${operation.javaReturnType} ${operation.javaMethodName}(HttpServletRequest request, HttpServletResponse response,
+    <@join_single_line>
+        <#list paramNames as paramName>
+            <#assign param = operation.parameters[paramName]>
+            final ${param.javaType} ${paramName?replace("-", "_")}<#if paramName_has_next>, </#if><#t></#list>
+    </@join_single_line><#lt>) {
+</#if>
+    <#if operation.javaReturnType != 'void'>
+        <#if operation.javaReturnType == 'boolean'>
+        return false
+        <#elseif operation.javaReturnType?matches('^[a-z][^\\.]*$')>
+        return 0;
+        <#else>
+        return null;
+        </#if>
     </#if>
-    </@join_single_line></#compress>) {
     }
 </#list>
 }
