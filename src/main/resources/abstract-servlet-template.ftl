@@ -44,24 +44,75 @@ public class AbstractServlet extends HttpServlet {
         }
     }
 
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        String pathInfo = request.getPathInfo();
+        logger.trace(pathInfo);
+
+        try {
+            String viewName = handlePostRequest(request, response, pathInfo);
+            if (viewName != null) {
+                char c = viewName.charAt(0);
+                if (c == '{') {
+                    renderJsonResponse(response, viewName);
+                } else if (c == '<') {
+                    renderXmlResponse(response, viewName);
+                } else {
+                    renderResponse(request, response, viewName);
+                }
+            }
+        } catch (HttpResponseException e) {
+            e.sendError(response);
+        }
+    }
+
+    @Override
+    protected void doPut(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        String pathInfo = request.getPathInfo();
+        logger.trace(pathInfo);
+
+        try {
+            String viewName = handlePutRequest(request, response, pathInfo);
+            if (viewName != null) {
+                char c = viewName.charAt(0);
+                if (c == '{') {
+                    renderJsonResponse(response, viewName);
+                } else if (c == '<') {
+                    renderXmlResponse(response, viewName);
+                } else {
+                    renderResponse(request, response, viewName);
+                }
+            }
+        } catch (HttpResponseException e) {
+            e.sendError(response);
+        }
+    }
+
+    @Override
+    protected void doDelete(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        String pathInfo = request.getPathInfo();
+        logger.trace(pathInfo);
+
+        try {
+            String viewName = handleDeleteRequest(request, response, pathInfo);
+            if (viewName != null) {
+                char c = viewName.charAt(0);
+                if (c == '{') {
+                    renderJsonResponse(response, viewName);
+                } else if (c == '<') {
+                    renderXmlResponse(response, viewName);
+                } else {
+                    renderResponse(request, response, viewName);
+                }
+            }
+        } catch (HttpResponseException e) {
+            e.sendError(response);
+        }
+    }
+
 //    @Override
 //    protected void doHead(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
 //        super.doHead(req, resp);
-//    }
-//
-//    @Override
-//    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-//        super.doPost(req, resp);
-//    }
-//
-//    @Override
-//    protected void doPut(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-//        super.doPut(req, resp);
-//    }
-//
-//    @Override
-//    protected void doDelete(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-//        super.doDelete(req, resp);
 //    }
 
     /**
@@ -79,6 +130,21 @@ public class AbstractServlet extends HttpServlet {
      */
     protected String handleGetRequest(HttpServletRequest request, HttpServletResponse response,
                                     String pathInfo, Map<String, Object> model) throws HttpResponseException, IOException {
+        throw new HttpResponseException(HttpServletResponse.SC_NOT_IMPLEMENTED);
+    }
+
+    protected String handlePostRequest(HttpServletRequest request, HttpServletResponse response,
+        String pathInfo) throws HttpResponseException, IOException {
+        throw new HttpResponseException(HttpServletResponse.SC_NOT_IMPLEMENTED);
+    }
+
+    protected String handlePutRequest(HttpServletRequest request, HttpServletResponse response,
+        String pathInfo) throws HttpResponseException, IOException {
+        throw new HttpResponseException(HttpServletResponse.SC_NOT_IMPLEMENTED);
+    }
+
+    protected String handleDeleteRequest(HttpServletRequest request, HttpServletResponse response,
+        String pathInfo) throws HttpResponseException, IOException {
         throw new HttpResponseException(HttpServletResponse.SC_NOT_IMPLEMENTED);
     }
 

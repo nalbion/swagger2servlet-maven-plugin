@@ -129,6 +129,154 @@ public class ${className} extends AbstractServlet {
         return null;
     }
 
+    protected String handlePostRequest(HttpServletRequest request, HttpServletResponse response,
+                                        String pathInfo)
+        throws HttpResponseException, IOException
+    {
+<#if hasPathPatterns>
+        java.util.regex.Matcher matcher;
+</#if>
+<#list operations as operation>
+    <#if operation.method == "POST">
+
+        <@compress_empty_lines>
+            <#if operation.summary??>
+        // <@multiline_comment>${operation.summary}</@multiline_comment>
+            <#elseif operation.description??>
+        // <@multiline_comment>${operation.description}</@multiline_comment>
+            </#if>
+        </@compress_empty_lines>
+        <#if operation.pathPattern??>
+        // ${operation.pathPattern}
+        matcher = ${operation.javaMethodName?replace("[A-Z]", "_$0", "r")?upper_case}_PATTERN.matcher(pathInfo);
+        if (matcher.find()) {
+            <#list operation.pathParameters as paramName>
+                <#assign param = operation.parameters[paramName]>
+            ${param.javaType} ${param.name} = <#rt>
+                <@parse_parameter param.javaType>matcher.group(${paramName_index + 1})</@parse_parameter>;<#lt>
+            </#list>
+        <#else>
+        if ("${operation.path}".equals(pathInfo)) {
+        </#if>
+        <#if operation.javaReturnType == "void">
+        ${operation.javaMethodName}(request, response<#if operation.pathPattern??>,
+                                <#list operation.pathParameters as param>${param}<#if param_has_next>, </#if></#list></#if>);
+            return null;
+        <#else>
+        ${operation.javaReturnType} responseData = ${operation.javaMethodName}(request, response<#if operation.pathPattern??>,
+                                <#list operation.pathParameters as param>${param}<#if param_has_next>, </#if></#list></#if>);
+            if (null != responseData) {
+                renderJsonResponse(response, responseData);
+                return null;
+            }
+        </#if>
+        }
+    </#if>
+</#list>
+
+        response.sendError(HttpServletResponse.SC_NOT_FOUND);
+        return null;
+    }
+
+    protected String handlePutRequest(HttpServletRequest request, HttpServletResponse response,
+                                        String pathInfo)
+        throws HttpResponseException, IOException
+    {
+<#if hasPathPatterns>
+        java.util.regex.Matcher matcher;
+</#if>
+<#list operations as operation>
+    <#if operation.method == "PUT">
+
+        <@compress_empty_lines>
+            <#if operation.summary??>
+        // <@multiline_comment>${operation.summary}</@multiline_comment>
+            <#elseif operation.description??>
+        // <@multiline_comment>${operation.description}</@multiline_comment>
+            </#if>
+        </@compress_empty_lines>
+        <#if operation.pathPattern??>
+        // ${operation.pathPattern}
+        matcher = ${operation.javaMethodName?replace("[A-Z]", "_$0", "r")?upper_case}_PATTERN.matcher(pathInfo);
+        if (matcher.find()) {
+            <#list operation.pathParameters as paramName>
+                <#assign param = operation.parameters[paramName]>
+            ${param.javaType} ${param.name} = <#rt>
+                <@parse_parameter param.javaType>matcher.group(${paramName_index + 1})</@parse_parameter>;<#lt>
+            </#list>
+        <#else>
+        if ("${operation.path}".equals(pathInfo)) {
+        </#if>
+        <#if operation.javaReturnType == "void">
+            ${operation.javaMethodName}(request, response<#if operation.pathPattern??>,
+                                <#list operation.pathParameters as param>${param}<#if param_has_next>, </#if></#list></#if>);
+            return null;
+        <#else>
+        ${operation.javaReturnType} responseData = ${operation.javaMethodName}(request, response<#if operation.pathPattern??>,
+                                <#list operation.pathParameters as param>${param}<#if param_has_next>, </#if></#list></#if>);
+            if (null != responseData) {
+                renderJsonResponse(response, responseData);
+                return null;
+            }
+        </#if>
+        }
+    </#if>
+</#list>
+
+        response.sendError(HttpServletResponse.SC_NOT_FOUND);
+        return null;
+    }
+
+    protected String handleDeleteRequest(HttpServletRequest request, HttpServletResponse response,
+                                        String pathInfo)
+        throws HttpResponseException, IOException
+    {
+<#if hasPathPatterns>
+        java.util.regex.Matcher matcher;
+</#if>
+<#list operations as operation>
+    <#if operation.method == "DELETE">
+
+        <@compress_empty_lines>
+            <#if operation.summary??>
+        // <@multiline_comment>${operation.summary}</@multiline_comment>
+           <#elseif operation.description??>
+        // <@multiline_comment>${operation.description}</@multiline_comment>
+            </#if>
+        </@compress_empty_lines>
+        <#if operation.pathPattern??>
+        // ${operation.pathPattern}
+        matcher = ${operation.javaMethodName?replace("[A-Z]", "_$0", "r")?upper_case}_PATTERN.matcher(pathInfo);
+        if (matcher.find()) {
+            <#list operation.pathParameters as paramName>
+                <#assign param = operation.parameters[paramName]>
+            ${param.javaType} ${param.name} = <#rt>
+                <@parse_parameter param.javaType>matcher.group(${paramName_index + 1})</@parse_parameter>;<#lt>
+            </#list>
+        <#else>
+        if ("${operation.path}".equals(pathInfo)) {
+        </#if>
+        <#if operation.javaReturnType == "void">
+            ${operation.javaMethodName}(request, response<#if operation.pathPattern??>,
+                                    <#list operation.pathParameters as param>${param}<#if param_has_next>, </#if></#list></#if>);
+            return null;
+        <#else>
+            ${operation.javaReturnType} responseData = ${operation.javaMethodName}(request, response<#if operation.pathPattern??>,
+                                    <#list operation.pathParameters as param>${param}<#if param_has_next>, </#if></#list></#if>);
+
+            if (null != responseData) {
+                renderJsonResponse(response, responseData);
+                return null;
+            }
+        </#if>
+        }
+    </#if>
+</#list>
+
+        response.sendError(HttpServletResponse.SC_NOT_FOUND);
+        return null;
+    }
+
     protected String handleGetIndex(HttpServletRequest request, HttpServletResponse response, Map<String, Object> model)
         throws HttpResponseException, IOException
     {
