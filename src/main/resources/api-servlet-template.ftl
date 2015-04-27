@@ -159,16 +159,14 @@ public class ${className} extends AbstractServlet {
         if ("${operation.path}".equals(pathInfo)) {
         </#if>
         <#if operation.javaReturnType == "void">
-        ${operation.javaMethodName}(request, response<#if operation.pathPattern??>,
+            ${operation.javaMethodName}(request, response<#if operation.pathPattern??>,
                                 <#list operation.pathParameters as param>${param}<#if param_has_next>, </#if></#list></#if>);
             return null;
         <#else>
-        ${operation.javaReturnType} responseData = ${operation.javaMethodName}(request, response<#if operation.pathPattern??>,
+            ${operation.javaReturnType} responseData = ${operation.javaMethodName}(request, response<#if operation.pathPattern??>,
                                 <#list operation.pathParameters as param>${param}<#if param_has_next>, </#if></#list></#if>);
-            if (null != responseData) {
-                renderJsonResponse(response, responseData);
-                return null;
-            }
+            renderJsonResponse(response, responseData);
+            return null;
         </#if>
         }
     </#if>
